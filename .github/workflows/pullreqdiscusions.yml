@@ -1,0 +1,41 @@
+name: Update Discussion on New Pull Request
+
+on:
+  pull_request:
+    types:
+      - opened
+
+jobs:
+  update-discussion:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v2
+
+    - name: Update Discussion
+      run: |
+        PR_NUMBER="${{ github.event.pull_request.number }}"
+        REPO="${{ github.repository }}"
+        CURRENT_DATE="$(date +'%Y-%m-%d')"
+        COMMENT_BODY="Updated on $CURRENT_DATE\n\n+ ${{ github.event.pull_request.additions }} - ${{ github.event.pull_request.deletions }}\n\n${{ github.event.pull_request.title }}"
+
+        # Get the list of all discussions in the repository
+        DISCUSSIONS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+          "https://api.github.com/repos/$REPO/discussions")
+
+        # Loop through discussions and delete any with "Automated" in the title
+        for DISCUSSION_ID in $(echo "$DISCUSSIONS" | jq -r '.[].id'); do
+          DISCUSSION_TITLE=$(echo "$DISCUSSIONS" | jq -r --arg DISCUSSION_ID "$DISCUSSION_ID" '.[] | select(.id == $DISCUSSION_ID).title')
+          
+          if [[ "$DISCUSSION_TITLE" == *Automated* ]]; then
+            curl -X DELETE -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              "https://api.github.com/repos/$REPO/discussions/$DISCUSSION_ID"
+          fi
+        done
+
+        # Create a new discussion with the updated title and comment
+        curl -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+          -H "Accept: application/vnd.github.v3+json" \
+          -d "{\"title\":\"Update from $CURRENT_DATE\",\"category_id\":\"show-and-tell\",\"body\":\"$COMMENT_BODY\"}" \
+          "https://api.github.com/repos/$REPO/discussions"
